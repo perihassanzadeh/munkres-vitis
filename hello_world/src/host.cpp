@@ -1,158 +1,191 @@
-/**********
-Copyright (c) 2019, Xilinx, Inc.
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice,
-this list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice,
-this list of conditions and the following disclaimer in the documentation
-and/or other materials provided with the distribution.
-
-3. Neither the name of the copyright holder nor the names of its contributors
-may be used to endorse or promote products derived from this software
-without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
-THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED.
-IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
-INDIRECT,
-INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO,
-PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
-BUSINESS INTERRUPTION)
-HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
-THIS SOFTWARE,
-EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-**********/
+/**
+* Copyright (C) 2020 Xilinx, Inc
+*
+* Licensed under the Apache License, Version 2.0 (the "License"). You may
+* not use this file except in compliance with the License. A copy of the
+* License is located at
+*
+*     http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+* WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+* License for the specific language governing permissions and limitations
+* under the License.
+*/
 
 #include "xcl2.hpp"
 #include <algorithm>
 #include <vector>
-#define DATA_SIZE 4096
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <omp.h>
 
-int main(int argc, char **argv) {
-  if (argc != 2) {
-    std::cout << "Usage: " << argv[0] << " <XCLBIN File>" << std::endl;
-    return EXIT_FAILURE;
-  }
+typedef short DTYPE;
+const int SIZE = 512;
 
-  std::string binaryFile = argv[1];
-  size_t vector_size_bytes = sizeof(int) * DATA_SIZE;
-  cl_int err;
-  cl::Context context;
-  cl::Kernel krnl_vector_add;
-  cl::CommandQueue q;
-  // Allocate Memory in Host Memory
-  // When creating a buffer with user pointer (CL_MEM_USE_HOST_PTR), under the
-  // hood user ptr
-  // is used if it is properly aligned. when not aligned, runtime had no choice
-  // but to create
-  // its own host side buffer. So it is recommended to use this allocator if
-  // user wish to
-  // create buffer using CL_MEM_USE_HOST_PTR to align user buffer to page
-  // boundary. It will
-  // ensure that user buffer is used when user create Buffer/Mem object with
-  // CL_MEM_USE_HOST_PTR
-  std::vector<int, aligned_allocator<int>> source_in1(DATA_SIZE);
-  std::vector<int, aligned_allocator<int>> source_in2(DATA_SIZE);
-  std::vector<int, aligned_allocator<int>> source_hw_results(DATA_SIZE);
-  std::vector<int, aligned_allocator<int>> source_sw_results(DATA_SIZE);
+void mm_sw( std::vector<DTYPE, aligned_allocator<DTYPE> > A, std::vector<DTYPE, aligned_allocator<DTYPE> > B, std::vector<DTYPE, aligned_allocator<DTYPE> > & AB){
+//void mm_sw( std::vector<DTYPE, aligned_allocator<DTYPE> > At, std::vector<DTYPE, aligned_allocator<DTYPE> > B, std::vector<DTYPE, aligned_allocator<DTYPE> > & AB){
 
-  // Create the test data
-  std::generate(source_in1.begin(), source_in1.end(), std::rand);
-  std::generate(source_in2.begin(), source_in2.end(), std::rand);
-  for (int i = 0; i < DATA_SIZE; i++) {
-    source_sw_results[i] = source_in1[i] + source_in2[i];
-    source_hw_results[i] = 0;
-  }
+// #pragma omp parallel
+//     {
+//         int tid = omp_get_thread_num();
+//         if( tid == 0 ){
+//             int nthreads = omp_get_num_threads();
+//             std::cout << "Running OpenMP with " << nthreads << " threads...\n";
+//         }
+//     }
 
-  // OPENCL HOST CODE AREA START
-  // get_xil_devices() is a utility API which will find the xilinx
-  // platforms and will return list of devices connected to Xilinx platform
-  auto devices = xcl::get_xil_devices();
-  // read_binary_file() is a utility API which will load the binaryFile
-  // and will return the pointer to file buffer.
-  auto fileBuf = xcl::read_binary_file(binaryFile);
-  cl::Program::Binaries bins{{fileBuf.data(), fileBuf.size()}};
-  int valid_device = 0;
-  for (unsigned int i = 0; i < devices.size(); i++) {
-    auto device = devices[i];
-    // Creating Context and Command Queue for selected Device
-    OCL_CHECK(err, context = cl::Context(device, NULL, NULL, NULL, &err));
-    OCL_CHECK(err, q = cl::CommandQueue(context, device,
-                                        CL_QUEUE_PROFILING_ENABLE, &err));
-    std::cout << "Trying to program device[" << i
-              << "]: " << device.getInfo<CL_DEVICE_NAME>() << std::endl;
-    cl::Program program(context, {device}, bins, NULL, &err);
-    if (err != CL_SUCCESS) {
-      std::cout << "Failed to program device[" << i << "] with xclbin file!\n";
-    } else {
-      std::cout << "Device[" << i << "]: program successful!\n";
-      OCL_CHECK(err, krnl_vector_add = cl::Kernel(program, "vadd", &err));
-      valid_device++;
-      break; // we break because we found a valid device
+    DTYPE sum = 0;
+//#pragma omp parallel for private(sum)
+    for(int i = 0; i < SIZE; i++){
+        for(int j = 0; j<SIZE; j++){
+            sum = 0;
+            for(int k = 0; k < SIZE; k++){
+                sum = sum + A[i*SIZE+k] * B[k*SIZE+j];
+                //sum = sum + At[k*SIZE+i] * B[k*SIZE+j];
+            }
+            AB[i*SIZE+j] = sum;
+        }
     }
-  }
-  if (valid_device == 0) {
-    std::cout << "Failed to program any device found, exit!\n";
-    exit(EXIT_FAILURE);
-  }
-
-  // Allocate Buffer in Global Memory
-  // Buffers are allocated using CL_MEM_USE_HOST_PTR for efficient memory and
-  // Device-to-host communication
-  OCL_CHECK(err, cl::Buffer buffer_in1(
-                     context, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY,
-                     vector_size_bytes, source_in1.data(), &err));
-  OCL_CHECK(err, cl::Buffer buffer_in2(
-                     context, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY,
-                     vector_size_bytes, source_in2.data(), &err));
-  OCL_CHECK(err, cl::Buffer buffer_output(
-                     context, CL_MEM_USE_HOST_PTR | CL_MEM_WRITE_ONLY,
-                     vector_size_bytes, source_hw_results.data(), &err));
-
-  int size = DATA_SIZE;
-  OCL_CHECK(err, err = krnl_vector_add.setArg(0, buffer_in1));
-  OCL_CHECK(err, err = krnl_vector_add.setArg(1, buffer_in2));
-  OCL_CHECK(err, err = krnl_vector_add.setArg(2, buffer_output));
-  OCL_CHECK(err, err = krnl_vector_add.setArg(3, size));
-
-  // Copy input data to device global memory
-  OCL_CHECK(err, err = q.enqueueMigrateMemObjects({buffer_in1, buffer_in2},
-                                                  0 /* 0 means from host*/));
-
-  // Launch the Kernel
-  // For HLS kernels global and local size is always (1,1,1). So, it is
-  // recommended
-  // to always use enqueueTask() for invoking HLS kernel
-  OCL_CHECK(err, err = q.enqueueTask(krnl_vector_add));
-
-  // Copy Result from Device Global Memory to Host Local Memory
-  OCL_CHECK(err, err = q.enqueueMigrateMemObjects({buffer_output},
-                                                  CL_MIGRATE_MEM_OBJECT_HOST));
-  q.finish();
-  // OPENCL HOST CODE AREA END
-
-  // Compare the results of the Device to the simulation
-  bool match = true;
-  for (int i = 0; i < DATA_SIZE; i++) {
-    if (source_hw_results[i] != source_sw_results[i]) {
-      std::cout << "Error: Result mismatch" << std::endl;
-      std::cout << "i = " << i << " CPU result = " << source_sw_results[i]
-                << " Device result = " << source_hw_results[i] << std::endl;
-      match = false;
-      break;
-    }
-  }
-
-  std::cout << "TEST " << (match ? "PASSED" : "FAILED") << std::endl;
-  return (match ? EXIT_SUCCESS : EXIT_FAILURE);
 }
+
+int main(int argc, char** argv) {
+    if (argc != 2) {
+        std::cout << "Usage: " << argv[0] << " <XCLBIN File>" << std::endl;
+        return EXIT_FAILURE;
+    }
+    std::string binaryFile = argv[1];
+
+    cl_int err;
+    cl::Context context;
+    cl::Kernel krnl_mm;
+    cl::CommandQueue q;
+    // Allocate Memory in Host Memory
+    // When creating a buffer with user pointer (CL_MEM_USE_HOST_PTR), under the
+    // hood user ptr
+    // is used if it is properly aligned. when not aligned, runtime had no choice
+    // but to create
+    // its own host side buffer. So it is recommended to use this allocator if
+    // user wish to
+    // create buffer using CL_MEM_USE_HOST_PTR to align user buffer to page
+    // boundary. It will
+    // ensure that user buffer is used when user create Buffer/Mem object with
+    // CL_MEM_USE_HOST_PTR
+
+    std::vector<DTYPE, aligned_allocator<DTYPE> > A(SIZE*SIZE); 
+    //std::vector<DTYPE, aligned_allocator<DTYPE> > At(SIZE*SIZE); 
+    std::vector<DTYPE, aligned_allocator<DTYPE> > B(SIZE*SIZE); 
+    std::vector<DTYPE, aligned_allocator<DTYPE> > AB_sw(SIZE*SIZE); 
+    std::vector<DTYPE, aligned_allocator<DTYPE> > AB_hw(SIZE*SIZE); 
+
+    srand(time(NULL));
+
+    for(int i = 0; i < SIZE; i++){
+        for(int j = 0; j < SIZE; j++){
+                A[i*SIZE+j] = rand() % 8;
+                //At[i*SIZE+j] = rand() % 8;
+                B[i*SIZE+j] = rand() % 8;
+                //A[i*SIZE+j] = 1;
+                //B[i*SIZE+j] = 1;
+
+                AB_sw[i*SIZE+j] = 0;
+                AB_hw[i*SIZE+j] = 0;
+        }
+    }
+    printf("Done initializing vectors\n");
+
+    std::cout << "Running SW MM...\n";
+    mm_sw(A, B, AB_sw);
+    //mm_sw(At, B, AB_sw);
+    printf("Done\n");
+
+    // OPENCL HOST CODE AREA START
+    // get_xil_devices() is a utility API which will find the xilinx
+    // platforms and will return list of devices connected to Xilinx platform
+    auto devices = xcl::get_xil_devices();
+    // read_binary_file() is a utility API which will load the binaryFile
+    // and will return the pointer to file buffer.
+    auto fileBuf = xcl::read_binary_file(binaryFile);
+    cl::Program::Binaries bins{{fileBuf.data(), fileBuf.size()}};
+    bool valid_device = false;
+    for (unsigned int i = 0; i < devices.size(); i++) {
+        auto device = devices[i];
+        // Creating Context and Command Queue for selected Device
+        OCL_CHECK(err, context = cl::Context(device, nullptr, nullptr, nullptr, &err));
+        OCL_CHECK(err, q = cl::CommandQueue(context, device, CL_QUEUE_PROFILING_ENABLE, &err));
+        std::cout << "Trying to program device[" << i << "]: " << device.getInfo<CL_DEVICE_NAME>() << std::endl;
+        cl::Program program(context, {device}, bins, nullptr, &err);
+        if (err != CL_SUCCESS) {
+            std::cout << "Failed to program device[" << i << "] with xclbin file!\n";
+        } else {
+            std::cout << "Device[" << i << "]: program successful!\n";
+            OCL_CHECK(err, krnl_mm = cl::Kernel(program, "vadd", &err));
+            valid_device = true;
+            break; // we break because we found a valid device
+        }
+    }
+    if (!valid_device) {
+        std::cout << "Failed to program any device found, exit!\n";
+        exit(EXIT_FAILURE);
+    }
+
+    // Allocate Buffer in Global Memory
+    // Buffers are allocated using CL_MEM_USE_HOST_PTR for efficient memory and
+    // Device-to-host communication
+    OCL_CHECK(err, cl::Buffer buffer_A(context, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, sizeof(DTYPE)*SIZE*SIZE, A.data(), &err));
+    //OCL_CHECK(err, cl::Buffer buffer_At(context, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, sizeof(DTYPE)*SIZE*SIZE, At.data(), &err));
+    OCL_CHECK(err, cl::Buffer buffer_B(context, CL_MEM_USE_HOST_PTR | CL_MEM_READ_ONLY, sizeof(DTYPE)*SIZE*SIZE, B.data(), &err));
+    OCL_CHECK(err, cl::Buffer buffer_AB(context, CL_MEM_USE_HOST_PTR | CL_MEM_WRITE_ONLY, sizeof(DTYPE)*SIZE*SIZE, AB_hw.data(), &err));
+
+    int matrix_size = SIZE;
+    OCL_CHECK(err, err = krnl_mm.setArg(0, buffer_A));
+    //OCL_CHECK(err, err = krnl_mm.setArg(0, buffer_At));
+    OCL_CHECK(err, err = krnl_mm.setArg(1, buffer_B));
+    OCL_CHECK(err, err = krnl_mm.setArg(2, buffer_AB));
+    OCL_CHECK(err, err = krnl_mm.setArg(3, matrix_size));
+
+    OCL_CHECK(err, err = q.enqueueMigrateMemObjects({buffer_A, buffer_B}, 0 /* 0 means from host*/));
+    //OCL_CHECK(err, err = q.enqueueMigrateMemObjects({buffer_At, buffer_B}, 0 /* 0 means from host*/));
+    q.finish();
+    
+    std::cout << "Running FPGA MM...\n";
+    auto start = std::chrono::steady_clock::now();
+
+    OCL_CHECK(err, err = q.enqueueTask(krnl_mm));
+    q.finish();
+
+    auto end = std::chrono::steady_clock::now();
+    std::cout << "Done.\n";
+    double exec_time = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+    double gops = double(SIZE) * SIZE * SIZE * 2 / (exec_time);
+    std::cout << "Time: " << exec_time*1e-9 << " sec, GOPS: " << gops << std::endl;
+
+    OCL_CHECK(err, err = q.enqueueMigrateMemObjects({buffer_AB}, CL_MIGRATE_MEM_OBJECT_HOST));
+    q.finish();
+
+
+    int err_cnt = 0;
+    for(int i = 0; i<SIZE; i++){
+        for(int j = 0; j<SIZE; j++){
+            if(AB_sw[i*SIZE+j] != AB_hw[i*SIZE+j]) {
+                err_cnt++;
+                if( err_cnt == 1 ){
+                    printf("i:%d j:%d sw:%d hw:%d\n", i, j, AB_sw[i*SIZE+j], AB_hw[i*SIZE+j] );
+                }
+            }
+        }
+    }
+
+    if(err_cnt != 0){
+        printf("FAILED! Error count : %d\n", err_cnt);
+        return EXIT_FAILURE;
+    }
+    else{
+        printf("PASSED!\n");
+    }
+
+    return EXIT_SUCCESS;
+}
+

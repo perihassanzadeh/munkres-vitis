@@ -1,0 +1,1 @@
+/ihome/crc/install/gcc/8.2.0/bin/c++    -std=c++11 -Wall -Wextra   CMakeFiles/munkres.bin.dir/examples/main.cpp.o  -o munkres.bin -rdynamic libmunkres.a 
