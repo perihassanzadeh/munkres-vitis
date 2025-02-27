@@ -1,6 +1,17 @@
-Vitis Accel Examples' Repository
+# Vitis Accel Examples' Repository
 ================================
 
-Welcome to the Vitis Accel Examples' repository. This repository contains examples to showcase various features of the Vitis tools and platforms. It is expected that users have gone through the tutorials and have developed a basic understanding of the tools and the programming model. This repository illustrates specific scenarios related to host code and kernel programming  through small working examples. The intention is for users to be able to use these working examples as a reference while developing their own accelerator application based on Xilinx platforms. 
+## Running the helloworld example
 
-For more comprehensive documentation, <a href="http://xilinx.github.io/Vitis_Accel_Examples/"><img src="https://img.shields.io/badge/click-here-green?style=plastic&logo=appveyor"/></a>
+This code currently contains an example of matirx multiple executed on the U200 FPGA on Pitt CRC. 
+Eventually this code will be used as a tool to aid in development of an accelerated matrix search of the Munkres data association algorithm.
+
+ssh to viz node in CRC
+Execute the following command: faketime -f '-4y' make host TARGET=hw DEVICE=xilinx_u200_xdma_201830_2 
+ssh to fpga-n0 
+Execute the following command: faketime -f '-4y' make check TARGET=hw DEVICE=xilinx_u200_xdma_201830_2
+- This command should take some time.
+
+The resulting details should be found within the builddir and contain information about resource utilization etc.
+
+This example code was originally derived from the Vitis Accel Examples Repository.
